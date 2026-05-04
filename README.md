@@ -207,6 +207,16 @@ sudo apt-get install -y libeigen3-dev
 
 # Docker Compose (for GUI features)
 # Follow instructions at: https://docs.docker.com/compose/install/
+
+
+# Note: for ubuntu 24.04 users or even future releases it is advised to use a virutal environment for downloading python 3.8 as it breaks the system so to do so 
+
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.8 python3.8-venv python3.8-dev
+
+python3.8 -m venv myenv
+source myenv/bin/activate
 ```
 The prepation of enviroment for running testing examples can be done when 'near-RIC' is initialized, as sequence diagram is represented below:
 
@@ -322,6 +332,9 @@ cd GUI
 nano docker-compose.yml # you need to set 'NS3_HOST' IP which is address of machine where ns3 is deployed '- NS3_HOST=192.168.100.21'. This information is needed for control of ns3 from GUI.
 docker-compose up --build -d # this will deploy environement which includes GUI and InfluxDB database with newest images
 pip3 install influxdb
+
+
+
 ```
 
 
