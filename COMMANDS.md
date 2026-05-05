@@ -206,13 +206,40 @@ curl -X POST http://localhost:8000/stop-xapp \
 
 ---
 
-## 10. 실행 순서 한눈에 보기
+## 10. GUI 데이터 파이프라인 (UE KPI 표시)
+
+GUI에서 UE KPI를 보려면 host 측 trigger 서버가 필요:
+
+```bash
+# host에서 실행 (ns-3 디렉토리에서)
+cd ~/ns-O-RAN-flexric/mmwave-LENA-oran
+
+# gui_trigger.py: sim_data_pusher.py + stop_ns3.py 자동 시작
+python3 gui_trigger.py &
+
+# xApp trigger 서버 (RF Control/Handover xApp 시작/중지)
+cd "GUI/FlexRIC xApp GUI trigger"
+python3 xApp_trigger.py &
+python3 stop_xApp.py &
+```
+
+데이터 흐름:
+```
+ns-3 (du-cell-*.txt) → sim_data_pusher.py → InfluxDB → GUI Dashboard
+```
+
+---
+
+## 11. 실행 순서 한눈에 보기
 
 ```
-1. docker compose up -d          (GUI)
-2. ./nearRT-RIC                  (RIC - port 36421)
-3. [3초 대기]
-4. ./ns3 run orange-rf-...       (ns-3 E2 node)
-5. [10초 대기 - E2 연결]
-6. ./xapp_rc_rf_ctrl --mode all  (xApp - KPM sub + RC ctrl)
+1. docker compose up -d          (GUI - port 8000)
+2. python3 gui_trigger.py &      (host trigger 서버 - port 38866)
+3. cd "GUI/FlexRIC xApp GUI trigger" && python3 xApp_trigger.py & && python3 stop_xApp.py &
+4. ./nearRT-RIC                  (RIC - port 36421)
+5. [3초 대기]
+6. ./ns3 run orange-rf-...       (ns-3 E2 node)
+7. [10초 대기 - E2 연결]
+8. ./xapp_rc_rf_ctrl --mode all  (xApp - KPM sub + RC ctrl)
+   또는 GUI에서 "Start RF Ctrl xApp" 버튼 클릭
 ```
