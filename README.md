@@ -415,7 +415,7 @@ The output of the handover operation is documented and can be reviewed in detail
 
 The ES xApp operation according section 4.3:
 
-1. First, you need to switch to [oie-ric-taap-xapps](https://gitlab.eurecom.fr/mosaic5g/flexric/-/tree/oie-ric-taap-xapps?ref_type=heads) branch in Flexric reprocitory.
+1. First, you need to switch to commit ID [a358954c](https://gitlab.eurecom.fr/mosaic5g/flexric/-/tree/a358954c12dd009538473dd16554fa62b8835db7) branch in Flexric reprocitory.
 2. Navigate to '/path/to/flexric/build/examples/ric/' and then run './nearRT-RIC'.
 3. Use The RIC-TaaP Studio, following Section 6.4.3, Points 1,2,3 and 4.
 4. Run the ***Energy_saving_with_cell_utilization_scenario.cc*** scenario from RIC-TaaP Studio and select sceanrio flags.
