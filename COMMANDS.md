@@ -82,14 +82,14 @@ cd ~/flexric/build/examples/xApp/c/ctrl
 --mode <txp|ret|rlc-buffer|txp-ret|all>  제어 모드
 --cell <id>              대상 셀 ID (기본: 1)
 --txp-init <dBm>         초기 TXP (기본: 30)
---ret-init <deg>         초기 RET tilt (기본: -6)
+--tilt-init <deg>        초기 RET tilt (기본: -6)
 --rlc-init <bytes>       초기 RLC buffer (기본: 10485760)
 --thp-target <kbps>      throughput 목표 (기본: 50000)
 --prb-high <ratio>       PRB 사용률 high threshold (기본: 0.80)
 --energy-high <W>        energy high threshold (기본: 100)
 --rsrp-edge <dBm>        edge UE 판정 RSRP (기본: -95)
 --period <sec>           제어 주기 (기본: 5)
---max-iter <n>           최대 반복 (0=무한, 기본: 0)
+--iterations <n>         최대 반복 (0=무한, 기본: 0)
 ```
 
 ---
@@ -164,20 +164,20 @@ make nearRT-RIC
 
 ---
 
-## 7. GUI xApp Trigger (REST API)
+## 7. GUI xApp Trigger (host REST API)
 
-GUI에서 xApp을 제어할 때 사용하는 HTTP API:
+GUI에서 xApp을 제어할 때 사용하는 host 측 HTTP API:
 
 ```bash
 # RF Control xApp 시작
-curl -X POST http://localhost:8000/trigger-xapp \
-  -H "Content-Type: application/json" \
-  -d '{"type":"rf_ctrl","mode":"all","cell":1,"txp_init":30,"ret_init":-6,"rlc_init":10485760}'
+curl -X POST http://localhost:38868 \
+  -H "Content-Type: text/plain" \
+  -d '{"mode":"all","cell":1,"txp_init":30,"tilt_init":-6,"rlc_init":10485760}'
 
 # xApp 중지
-curl -X POST http://localhost:8000/stop-xapp \
-  -H "Content-Type: application/json" \
-  -d '{"type":"rf_ctrl"}'
+curl -X POST http://localhost:38869 \
+  -H "Content-Type: text/plain" \
+  -d 'stop_rf_ctrl'
 ```
 
 ---
@@ -235,7 +235,9 @@ ns-3 (du-cell-*.txt) → sim_data_pusher.py → InfluxDB → GUI Dashboard
 ```
 1. docker compose up -d          (GUI - port 8000)
 2. python3 gui_trigger.py &      (host trigger 서버 - port 38866)
-3. cd "GUI/FlexRIC xApp GUI trigger" && python3 xApp_trigger.py & && python3 stop_xApp.py &
+3. cd "GUI/FlexRIC xApp GUI trigger"
+   python3 xApp_trigger.py &
+   python3 stop_xApp.py &
 4. ./nearRT-RIC                  (RIC - port 36421)
 5. [3초 대기]
 6. ./ns3 run orange-rf-...       (ns-3 E2 node)
