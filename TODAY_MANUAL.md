@@ -85,17 +85,64 @@ cd ~/flexric/build/examples/xApp/c/ctrl
 
 xApp은 KPM indication을 받을 때마다 평균 throughput, PRB 사용률, energy, RSRP, edge UE 비율을 계산한다.
 
-정책 판단 기준은 다음과 같다.
+기본 threshold와 제어 범위는 다음과 같다.
+
+| 항목 | 기본값 | CLI 옵션 | 의미 |
+| --- | ---: | --- | --- |
+| Throughput target | `50000 kbps` | `--thp-target` | 평균 DL throughput 목표 |
+| PRB high threshold | `0.80` | `--prb-high` | PRB 사용률이 높은 상태를 판단하는 기준 |
+| Energy high threshold | `100.0` | `--energy-high` | energy waste 판단 기준 |
+| Edge RSRP threshold | `-95 dBm` | `--rsrp-edge` | 이 값보다 RSRP가 낮으면 edge UE로 분류 |
+| Edge ratio high | `0.50` | 코드 기본값 | 전체 UE 중 edge UE 비율이 높은 상태 |
+| Edge ratio low | `0.20` | 코드 기본값 | edge UE 비율이 낮은 상태 |
+| Control period | `5 sec` | `--period` | 정책 판단 주기 |
+| KPM report period | `1000 ms` | 코드 기본값 | KPM subscription 주기 |
+| Cooldown | `2 cycles` | 코드 기본값 | 제어 후 2번의 control period 동안 관찰만 수행 |
+
+제어 파라미터 범위와 step은 다음과 같다.
+
+| 제어 대상 | 범위 | 변경량 | 초기값 |
+| --- | ---: | ---: | ---: |
+| TxPower | `20 ~ 46 dBm` | `2 dB` | `30 dBm` |
+| RET tilt | `-15 ~ 0 deg` | `1 deg` | `-6 deg` |
+| RLC buffer | `1 ~ 64 MB` | `x2` 또는 `/2` | `10 MB` |
+
+정책 판단에 쓰는 집계값은 다음과 같다.
+
+```text
+avg_dl_thp       = 유효 UE의 DL throughput 평균
+prb_used_ratio   = RRU.PrbUsedDl
+energy           = Energy.TotalConsumption
+edge_ue          = RSRP < -95 dBm 인 UE
+edge_ratio       = edge_ue / total_ue
+edge_avg_thp     = edge UE들의 DL throughput 평균
+```
+
+`--mode all`에서의 상태 분류는 아래 순서대로 평가된다. 먼저 만족한 조건 하나만 선택하고, 한 control cycle에 하나의 control만 보낸다.
 
 | 상태 | 조건 | 제어 |
 | --- | --- | --- |
-| `COVERAGE_LIMITED` | edge UE 비율이 높고 edge UE throughput이 낮음 | RET tilt 조정 |
-| `CAPACITY_LIMITED` | 평균 throughput이 낮고 PRB 사용률이 높음 | Tx power 증가 |
-| `BUFFER_LIMITED` | 평균 throughput이 낮고 PRB 사용률이 낮음 | RLC buffer 증가 |
-| `ENERGY_WASTE` | throughput은 충분한데 energy가 높음 | Tx power 감소 |
+| `COVERAGE_LIMITED` | `edge_ratio > 0.50` 그리고 `edge_avg_thp < 50000` | RET tilt `+1 deg` |
+| `CAPACITY_LIMITED` | `avg_dl_thp < 50000` 그리고 `prb_used_ratio > 0.80` | TxPower `+2 dB` |
+| `BUFFER_LIMITED` | `avg_dl_thp < 50000` 그리고 `prb_used_ratio < 0.80` | RLC buffer `x2` |
+| `ENERGY_WASTE` | `avg_dl_thp >= 50000` 그리고 `energy > 100.0` | TxPower `-2 dB` |
 | `STABLE` | 위 조건에 해당하지 않음 | 제어 없음 |
 
-현재 기본 실험에서는 아래처럼 판단된다.
+개별 모드의 정책은 다음과 같다.
+
+| 모드 | 조건 | 동작 |
+| --- | --- | --- |
+| `txp` | `avg_dl_thp < 50000` 그리고 `prb_used_ratio > 0.80` | TxPower `+2 dB` |
+| `txp` | `avg_dl_thp >= 50000` 그리고 `energy > 100.0` | TxPower `-2 dB` |
+| `ret` | `edge_ratio > 0.50` 그리고 `edge_avg_thp < 50000` | RET `+1 deg` |
+| `ret` | `edge_ratio < 0.20` 그리고 `avg_dl_thp < 50000` | RET `-1 deg` |
+| `rlc-buffer` | `avg_dl_thp < 50000` 그리고 `prb_used_ratio < 0.80` | RLC buffer `x2` |
+| `rlc-buffer` | `avg_dl_thp >= 50000` 그리고 `prb_used_ratio > 0.80` | RLC buffer `/2` |
+| `txp-ret` | `edge_ratio > 0.50`이면 RET 정책 우선 | RET 조건 만족 시 RET 제어 |
+| `txp-ret` | RET 조건이 아니고 `avg_dl_thp < 50000`, `prb_used_ratio > 0.80` | TxPower `+2 dB` |
+| `txp-ret` | `avg_dl_thp >= 50000`, `energy > 100.0` | TxPower `-2 dB` |
+
+기존 기본 실험 로그에서는 아래처럼 판단됐다.
 
 ```text
 avg_thp = 약 27473 kbps
@@ -105,14 +152,26 @@ UEs     = 5
 state   = BUFFER_LIMITED
 ```
 
-그래서 `--mode all` 실행 시 주로 RLC buffer control이 반복된다.
+현재 throughput/PRB 계산을 counter/scheduler 기반으로 바꿨기 때문에 실제 값은 트래픽과 scheduler allocation에 따라 달라질 수 있다. 다만 아래 예처럼 `avg_dl_thp < target`이고 `prb < 0.80`이면 `--mode all`에서는 RLC buffer control이 선택된다.
+
+위 값으로 상태를 계산하면 다음과 같다.
+
+```text
+avg_thp < 50000       true
+prb 0.55 > 0.80       false
+prb 0.55 < 0.80       true
+energy 3.2 > 100.0    false
+
+결과: BUFFER_LIMITED
+동작: RLC buffer x2
+```
 
 정상 동작 로그 예:
 
 ```text
 [xApp RF] === Iteration #N ===
-KPM: avg_thp=27473 kbps, prb=0.55, energy=3.2, UEs=5
-State: BUFFER_LIMITED
+KPM: avg_thp=<counter 기반 값> kbps, prb=<scheduler 기반 값>, energy=3.2, UEs=5
+State: BUFFER_LIMITED 또는 현재 KPM 조건에 맞는 상태
 [Policy RLC] buffer_pressure ... => RLC x2 = 67108864
 [xApp]: CONTROL-REQUEST tx
 [xApp]: CONTROL ACK rx
@@ -200,8 +259,8 @@ RLC buffer control:
 
 | KPM | GUI 표시 | 상태 | 비고 |
 | --- | --- | --- | --- |
-| `DRB.UEThpDl.UEID` | `TP_Combined_PDCP_ENDC_kbps`, `TP_Combined_RLC_ENDC_kbps` | 수신됨 | 현재 ns-3 생성식 때문에 고정값 |
-| `RRU.PrbUsedDl` | `RRU_PrbUsedDl`, `dlPrbUsage_percentage` | 수신됨 | UE 수 기반 생성식 때문에 고정값 |
+| `DRB.UEThpDl.UEID` | `TP_Combined_PDCP_ENDC_kbps`, `TP_Combined_RLC_ENDC_kbps` | 수신됨 | NR RLC byte counter 기반 계산 |
+| `RRU.PrbUsedDl` | `RRU_PrbUsedDl`, `dlPrbUsage_percentage` | 수신됨 | NR MAC scheduler의 실제 DL RB-symbol allocation 기반 계산 |
 | `Energy.TotalConsumption` | `Energy_TotalConsumption` | 수신됨 | TxPower 기반 계산값 |
 | `RSRP.UEID` | `RSRP` | 수신됨 | IMSI 기반 placeholder 값 |
 | `MeanActiveUEsDownlink` | `MeanActiveUEsDownlink` | 수신됨 | 현재 활성 UE 수 |
@@ -225,13 +284,11 @@ ue_1_rsrp.ueid
 du-cell-1_energy.totalconsumption
 ```
 
-## 7. THP가 고정으로 보이는 이유
+## 7. THP/PRB 계산 방식
 
-throughput이 계속 `27472` 또는 `27473 kbps` 근처로 고정되는 것은 GUI 파서 문제가 아니다.
+기존에는 throughput과 PRB가 UE 수 기반 placeholder라서 UE 수가 같으면 값이 고정됐다.
 
-현재 ns-3 KPM 생성 코드가 실제 PDCP/RLC counter를 읽는 방식이 아니라, UE 수와 PRB 추정값으로 throughput을 만들어낸다.
-
-현재 로직의 핵심:
+기존 로직의 핵심:
 
 ```text
 prbUsedRatio = min(1.0, totalUes * 30.0 / 273.0)
@@ -248,12 +305,15 @@ dlThpKbps    = 약 27472.5 kbps
 
 그래서 UE 수가 같으면 throughput과 PRB가 계속 같은 값으로 나온다.
 
-현재 KPM의 성격은 다음처럼 설명하면 된다.
+현재는 다음처럼 보강했다.
 
 ```text
-KPM 전달 경로와 xApp 제어 루프 검증용 값은 정상적으로 흐른다.
-다만 throughput, PRB, RSRP 일부는 실제 무선/트래픽 counter 기반 실측값이 아니라 ns-3 쪽에서 만든 placeholder 성격의 값이다.
+DRB.UEThpDl.UEID = reporting period 동안 NR RLC가 전송한 byte counter / period
+RRU.PrbUsedDl    = NR MAC scheduler가 실제 배정한 DL RB-symbol / 관측된 DL RB-symbol budget
+RRU.PrbUsedDl.UEID = 해당 RNTI가 실제 배정받은 DL RB-symbol / cell DL RB-symbol budget
 ```
+
+따라서 PRB는 더 이상 단순 UE 수 기반 값이 아니고, scheduler allocation이 바뀌면 같이 변해야 한다.
 
 ## 8. Energy 값이 안 변하는 이유
 
@@ -307,7 +367,7 @@ LTE_Cell_PDCP_Volume
 5. xApp 로그에서 KPM 값과 `State: BUFFER_LIMITED`를 보여준다.
 6. 이어서 `CONTROL-REQUEST tx`와 `CONTROL ACK rx`를 보여준다.
 7. GUI에서 UE throughput, PRB, RSRP, Energy가 표시되는 것을 보여준다.
-8. THP가 고정인 이유는 현재 KPM generator가 실측 counter가 아니라 UE 수 기반 계산식을 쓰기 때문이라고 설명한다.
+8. THP와 PRB는 UE 수 기반 placeholder에서 counter/scheduler 기반으로 보강했다고 설명한다.
 
 ## 11. 질문 받을 때 답변
 
@@ -320,13 +380,13 @@ Q. RIC control이 실제로 이뤄지나?
 Q. throughput이 왜 계속 같은가?
 
 ```text
-현재 ns-3 KPM 생성부가 실제 트래픽 counter가 아니라 UE 수 기반 공식으로 throughput을 만들기 때문이다. UE 수가 5로 고정이면 약 27472 kbps가 반복된다.
+기존에는 UE 수 기반 공식이라 고정됐다. 현재는 NR RLC byte counter 기반으로 바꿨기 때문에 트래픽이 실제로 변하면 throughput도 변해야 한다.
 ```
 
 Q. 다른 KPM은 잘 나오나?
 
 ```text
-DRB throughput, PRB, Energy, RSRP, active UE 수는 GUI/InfluxDB까지 올라온다. 다만 throughput, PRB, RSRP는 현재 placeholder 성격이고, Energy는 TxPower가 바뀔 때 의미 있게 변한다.
+DRB throughput, PRB, Energy, RSRP, active UE 수는 GUI/InfluxDB까지 올라온다. 현재 throughput은 RLC counter 기반, PRB는 MAC scheduler allocation 기반이고, RSRP는 아직 placeholder 성격이다. Energy는 TxPower가 바뀔 때 의미 있게 변한다.
 ```
 
 Q. 그러면 현재 결과의 의미는 무엇인가?
@@ -342,10 +402,10 @@ Q. 그러면 현재 결과의 의미는 무엇인가?
 우선순위는 다음과 같다.
 
 ```text
-1. DRB.UEThpDl.UEID를 실제 PDCP/RLC byte counter 기반으로 계산
-2. RRU.PrbUsedDl을 실제 scheduler PRB 사용량 기반으로 계산
-3. RSRP.UEID를 실제 channel/PHY 측정값 기반으로 연결
-4. TxPower/RET 변경 후 throughput, RSRP, PRB가 동적으로 변하는지 검증
+1. RSRP.UEID를 실제 channel/PHY 측정값 기반으로 연결
+2. TxPower/RET 변경 후 throughput, RSRP, PRB가 동적으로 변하는지 검증
+3. PDCP 기반 throughput counter를 별도로 연결
+4. Energy model을 TxPower 단순 환산이 아니라 실제 radio energy model과 연결
 ```
 
-현재 버전은 제어 루프 시연용으로는 동작하지만, 논문/성능평가용 수치로 쓰기에는 KPM 생성부 보강이 필요하다.
+현재 버전은 제어 루프 시연용으로 동작하고, throughput/PRB는 이전 placeholder보다 실제 counter에 가까워졌다. 다만 RSRP와 energy는 논문/성능평가용 수치로 쓰기 전에 추가 보강이 필요하다.
